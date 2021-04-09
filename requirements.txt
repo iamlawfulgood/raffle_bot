@@ -1,0 +1,2 @@
+configparser == 5.0.1
+discord.py == 1.6.0

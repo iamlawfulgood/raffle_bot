@@ -1,0 +1,4 @@
+CREATE TABLE raffles (
+`guild_id` INT NOT NULL UNIQUE,
+`message_id` INT NOT NULL
+);
