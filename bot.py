@@ -1,6 +1,7 @@
 import configparser
 import discord
 from discord.ext import commands
+from enum import Enum
 import os
 import random
 from src.DB import DB
@@ -15,14 +16,6 @@ config.read(os.environ.get("CONFIG_PATH"))
 
 
 @bot.event
-async def on_ready():
-    print("Logged in as")
-    print(bot.user.name)
-    print(bot.user.id)
-    print("------")
-
-
-@bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
@@ -30,10 +23,19 @@ async def on_command_error(ctx, error):
     await ctx.message.delete(delay=5)
 
 
+class RaffleType(Enum):
+    # Normal Raffle type. Most recent 5 winners are not eligible to win
+    Normal = "normal"
+    # No restrictions. Anyone can win. But win is still recorded.
+    Anyone = "anyone"
+    # Only people who have never won a raffle are eligible
+    New = "new"
+
+
 @bot.command()
 @commands.guild_only()
 @commands.has_role("raffler")
-async def start(ctx):
+async def start(ctx: commands.Context):
     """Creates a brand new raffle"""
     if DB.get().has_ongoing_raffle(ctx.guild.id):
         raise Exception("There is already an ongoing raffle!")
@@ -48,7 +50,11 @@ async def start(ctx):
 @bot.command()
 @commands.guild_only()
 @commands.has_role("raffler")
-async def end(ctx, num_winners=1):
+async def end(
+    ctx: commands.Context,
+    raffle_type: str = "normal",
+    num_winners: int = 1,
+):
     """Closes an existing raffle and pick the winner(s)"""
     if not DB.get().has_ongoing_raffle(ctx.guild.id):
         raise Exception("There is no ongoing raffle! You need to start a new one.")
@@ -58,39 +64,25 @@ async def end(ctx, num_winners=1):
         raise Exception("The number of winners must be at least 1.")
 
     raffle_message_id = DB.get().get_raffle_message_id(ctx.guild.id)
-
-    raffle_message = await ctx.fetch_message(raffle_message_id)
-    if raffle_message is None:
+    if raffle_message_id is None:
         raise Exception("Oops! That raffle does not exist anymore.")
 
-    entrants = []
-    for reaction in raffle_message.reactions:
-        users = await reaction.users().flatten()
-        for user in users:
-            if user not in entrants:
-                entrants.append(user)
-
-    if len(entrants) > 0:
-        winners = choose_winners(entrants, num_winners)
-        if len(winners) == 1:
-            await ctx.send("{} has won the raffle!".format(winners[0].mention))
-        else:
-            await ctx.send(
-                "Raffle winners are: {}!".format(
-                    ", ".join(map(lambda winner: winner.mention, winners))
-                )
-            )
-    else:
-        await ctx.send("No one entered the raffle so there is no winner.")
-
+    await _end_raffle_impl(ctx, raffle_message_id, raffle_type, num_winners)
     DB.get().close_raffle(ctx.guild.id)
 
 
 @bot.command()
 @commands.guild_only()
 @commands.has_role("raffler")
-async def redo(ctx, num_winners=1):
-    """Picks new winner(s) from a past raffle. Make sure to reply to the original raffle message when invoking this command."""
+async def redo(
+    ctx: commands.Context,
+    raffle_type: str = "normal",
+    num_winners: int = 1,
+):
+    """
+    Picks new winner(s) from a past raffle.
+    Make sure to reply to the original raffle message when invoking this command.
+    """
     original_raffle = ctx.message.reference
     if original_raffle is None:
         raise Exception(
@@ -109,15 +101,46 @@ async def redo(ctx, num_winners=1):
     if raffle_message is None:
         raise Exception("Oops! That raffle does not exist anymore.")
 
+    # We need to reset the past winners if we're re-doing a raffle draw
+    # otherwise it'd be unfairly counted against them
+    DB.get().clear_wins(ctx.guild.id, raffle_message.id)
+
+    await _end_raffle_impl(ctx, raffle_message.id, raffle_type, num_winners)
+
+
+async def _end_raffle_impl(
+    ctx: commands.Context,
+    raffle_message_id: int,
+    raffle_type: str,
+    num_winners: int,
+):
+    raffle_message = await ctx.fetch_message(raffle_message_id)
+    if raffle_message is None:
+        raise Exception("Oops! That raffle does not exist anymore.")
+
+    # We annotate the raffle_type param above as `str` for a more-clear error message
+    # This way it says it doesn't recognize the raffle type rather than fail param type conversion
+    raffle_type = RaffleType(raffle_type)
+
+    if raffle_type == RaffleType.Normal:
+        ineligible_winner_ids = DB.get().recent_winners(ctx.guild.id)
+    elif raffle_type == RaffleType.Anyone:
+        ineligible_winner_ids = []
+    elif raffle_type == RaffleType.New:
+        ineligible_winner_ids = DB.get().all_winners(ctx.guild.id)
+    else:
+        raise Exception("Unimplemented raffle type")
+
     entrants = []
     for reaction in raffle_message.reactions:
         users = await reaction.users().flatten()
         for user in users:
-            if user not in entrants:
+            if user not in entrants and user.id not in ineligible_winner_ids:
                 entrants.append(user)
 
     if len(entrants) > 0:
-        winners = choose_winners(entrants, num_winners)
+        winners = _choose_winners(entrants, num_winners)
+        DB.get().record_win(ctx.guild.id, raffle_message_id, *winners)
         if len(winners) == 1:
             await ctx.send("{} has won the raffle!".format(winners[0].mention))
         else:
@@ -127,10 +150,10 @@ async def redo(ctx, num_winners=1):
                 )
             )
     else:
-        await ctx.send("No one entered the raffle so there is no winner.")
+        await ctx.send("No one eligible entered the raffle so there is no winner.")
 
 
-def choose_winners(entrants, num_winners):
+def _choose_winners(entrants, num_winners):
     if len(entrants) < num_winners:
         raise Exception("There are not enough entrants for that many winners.")
 
