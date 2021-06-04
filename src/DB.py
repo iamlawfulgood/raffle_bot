@@ -1,5 +1,9 @@
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+import discord
 import os
 import sqlite3
+from typing import Optional
 
 
 class DB:
@@ -19,7 +23,7 @@ class DB:
         ), "Use DB.get() to connect to the database"
         self.conn = sqlite3.connect(os.environ.get("DB_PATH"))
 
-    def create_raffle(self, guild_id, message_id):
+    def create_raffle(self, guild_id: int, message_id: int) -> None:
         c = self.conn.cursor()
         if self.has_ongoing_raffle(guild_id):
             raise Exception("There is already an ongoing raffle!")
@@ -34,7 +38,7 @@ class DB:
         self.conn.commit()
         c.close()
 
-    def get_raffle_message_id(self, guild_id):
+    def get_raffle_message_id(self, guild_id: int) -> Optional[int]:
         c = self.conn.cursor()
         if not self.has_ongoing_raffle(guild_id):
             raise Exception("There is no ongoing raffle! You need to start a new one.")
@@ -48,13 +52,13 @@ class DB:
             return None
         return result[0]
 
-    def has_ongoing_raffle(self, guild_id):
+    def has_ongoing_raffle(self, guild_id: int) -> bool:
         c = self.conn.cursor()
         c.execute('SELECT rowid FROM "raffles" WHERE "guild_id"=?', (guild_id,))
         result = c.fetchone()
         return result is not None
 
-    def close_raffle(self, guild_id):
+    def close_raffle(self, guild_id: int) -> None:
         c = self.conn.cursor()
         if not self.has_ongoing_raffle(guild_id):
             raise Exception("There is no ongoing raffle! You need to start a new one.")
@@ -66,7 +70,9 @@ class DB:
         self.conn.commit()
         c.close()
 
-    def record_win(self, guild_id, message_id, *users):
+    def record_win(
+        self, guild_id: int, message_id: int, *users: discord.Member
+    ) -> None:
         c = self.conn.cursor()
         values = list(map(lambda user: (guild_id, message_id, user.id), users))
         c.executemany(
@@ -76,7 +82,7 @@ class DB:
         self.conn.commit()
         c.close()
 
-    def clear_wins(self, guild_id, message_id):
+    def clear_wins(self, guild_id: int, message_id: int) -> None:
         c = self.conn.cursor()
         c.execute(
             'DELETE FROM "past_wins" WHERE guild_id = ? AND message_id = ?',
@@ -88,29 +94,56 @@ class DB:
         self.conn.commit()
         c.close()
 
-    def recent_winners(self, guild_id):
+    def recent_winner_ids(self, guild_id: int) -> set[int]:
         c = self.conn.cursor()
         c.execute(
             (
                 'SELECT DISTINCT user_id FROM "past_wins" WHERE guild_id = ?'
-                "ORDER BY id DESC LIMIT 5"
+                "ORDER BY id DESC LIMIT 6"
             ),
             (guild_id,),
         )
         results = c.fetchall()
-        winners = []
+        winners = set()
         for result in results:
-            winners.append(int(result[0]))
+            winners.add(int(result[0]))
         return winners
 
-    def all_winners(self, guild_id):
+    def past_week_winner_ids(self, guild_id: int) -> set[int]:
+        # Discord uses a snowflake ID scheme which stores the UTC timestamp
+        # So rather than need to store a separate timestamp column, we can
+        # filter on the ID prefix!
+        one_week_ago = int(
+            (datetime.now(tz=timezone.utc) - timedelta(days=7)).timestamp() * 1000
+        )
+        discord_timestamp = one_week_ago - 1420070400000  # Discord epoch
+        min_snowflake = discord_timestamp << 22
+
+        c = self.conn.cursor()
+        c.execute(
+            (
+                'SELECT DISTINCT user_id FROM "past_wins" WHERE guild_id = ? '
+                "AND message_id > ?"
+            ),
+            (
+                guild_id,
+                min_snowflake,
+            ),
+        )
+        results = c.fetchall()
+        winners = set()
+        for result in results:
+            winners.add(int(result[0]))
+        return winners
+
+    def all_winner_ids(self, guild_id: int) -> set[int]:
         c = self.conn.cursor()
         c.execute(
             'SELECT DISTINCT user_id FROM "past_wins" WHERE guild_id = ?',
             (guild_id,),
         )
         results = c.fetchall()
-        winners = []
+        winners = set()
         for result in results:
-            winners.append(int(result[0]))
+            winners.add(int(result[0]))
         return winners

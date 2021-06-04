@@ -1,3 +1,4 @@
+from __future__ import annotations
 import configparser
 import discord
 from discord.ext import commands
@@ -12,11 +13,11 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!raffle ", description=description, intents=intents)
 
 config = configparser.ConfigParser()
-config.read(os.environ.get("CONFIG_PATH"))
+config.read(str(os.environ.get("CONFIG_PATH")))
 
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_command_error(ctx, error) -> None:
     if isinstance(error, commands.CommandNotFound):
         return
     await ctx.channel.send(str(error), delete_after=5)
@@ -24,7 +25,7 @@ async def on_command_error(ctx, error):
 
 
 class RaffleType(Enum):
-    # Normal Raffle type. Most recent 5 winners are not eligible to win
+    # Normal Raffle type. Most recent 6 winners are not eligible to win
     Normal = "normal"
     # No restrictions. Anyone can win. But win is still recorded.
     Anyone = "anyone"
@@ -54,7 +55,7 @@ async def end(
     ctx: commands.Context,
     raffle_type: str = "normal",
     num_winners: int = 1,
-):
+) -> None:
     """Closes an existing raffle and pick the winner(s)"""
     if not DB.get().has_ongoing_raffle(ctx.guild.id):
         raise Exception("There is no ongoing raffle! You need to start a new one.")
@@ -78,7 +79,7 @@ async def redo(
     ctx: commands.Context,
     raffle_type: str = "normal",
     num_winners: int = 1,
-):
+) -> None:
     """
     Picks new winner(s) from a past raffle.
     Make sure to reply to the original raffle message when invoking this command.
@@ -113,7 +114,7 @@ async def _end_raffle_impl(
     raffle_message_id: int,
     raffle_type: str,
     num_winners: int,
-):
+) -> None:
     raffle_message = await ctx.fetch_message(raffle_message_id)
     if raffle_message is None:
         raise Exception("Oops! That raffle does not exist anymore.")
@@ -123,23 +124,25 @@ async def _end_raffle_impl(
     raffle_type = RaffleType(raffle_type)
 
     if raffle_type == RaffleType.Normal:
-        ineligible_winner_ids = DB.get().recent_winners(ctx.guild.id)
+        recent_raffle_winner_ids = DB.get().recent_winner_ids(ctx.guild.id)
+        past_week_winner_ids = DB.get().past_week_winner_ids(ctx.guild.id)
+        ineligible_winner_ids = recent_raffle_winner_ids.union(past_week_winner_ids)
     elif raffle_type == RaffleType.Anyone:
-        ineligible_winner_ids = []
+        ineligible_winner_ids = set()
     elif raffle_type == RaffleType.New:
-        ineligible_winner_ids = DB.get().all_winners(ctx.guild.id)
+        ineligible_winner_ids = DB.get().all_winner_ids(ctx.guild.id)
     else:
         raise Exception("Unimplemented raffle type")
 
-    entrants = []
+    entrants = set()
     for reaction in raffle_message.reactions:
         users = await reaction.users().flatten()
         for user in users:
-            if user not in entrants and user.id not in ineligible_winner_ids:
-                entrants.append(user)
+            if user.id not in ineligible_winner_ids:
+                entrants.add(user)
 
     if len(entrants) > 0:
-        winners = _choose_winners(entrants, num_winners)
+        winners = _choose_winners(list(entrants), num_winners)
         DB.get().record_win(ctx.guild.id, raffle_message_id, *winners)
         if len(winners) == 1:
             await ctx.send("{} has won the raffle!".format(winners[0].mention))
@@ -153,7 +156,9 @@ async def _end_raffle_impl(
         await ctx.send("No one eligible entered the raffle so there is no winner.")
 
 
-def _choose_winners(entrants, num_winners):
+def _choose_winners(
+    entrants: list[discord.Member], num_winners: int
+) -> list[discord.Member]:
     if len(entrants) < num_winners:
         raise Exception("There are not enough entrants for that many winners.")
 
