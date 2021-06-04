@@ -9,3 +9,8 @@ CREATE TABLE IF NOT EXISTS past_wins (
   `message_id` INT NOT NULL,
   `user_id` INT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS eligible_roles (
+  `guild_id` INT NOT NULL,
+  `role_id` INT NOT NULL
+);

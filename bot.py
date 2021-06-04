@@ -9,6 +9,8 @@ from src.DB import DB
 
 description = "Manage raffles in Discord!"
 intents = discord.Intents.default()
+intents.members = True
+intents.guilds = True
 
 bot = commands.Bot(command_prefix="!raffle ", description=description, intents=intents)
 
@@ -141,6 +143,15 @@ async def _end_raffle_impl(
             if user.id not in ineligible_winner_ids:
                 entrants.add(user)
 
+    # Certain servers may only want you to be eligible for a raffle if you have
+    # given role(s). These are checked as ORs meaning if you have at least one
+    # of the configured roles you are eligible to win.
+    eligible_role_ids = DB.get().eligible_role_ids(ctx.guild.id)
+    if len(eligible_role_ids) > 0:
+        for entrant in entrants.copy():
+            if eligible_role_ids.intersection(_get_role_ids(entrant)) == set():
+                entrants.remove(entrant)
+
     if len(entrants) > 0:
         winners = _choose_winners(list(entrants), num_winners)
         DB.get().record_win(ctx.guild.id, raffle_message_id, *winners)
@@ -170,6 +181,10 @@ def _choose_winners(
         num_winners -= 1
 
     return winners
+
+
+def _get_role_ids(member: discord.Member) -> set[int]:
+    return set(map(lambda role: role.id, member.roles))
 
 
 bot.run(config["Discord"]["Token"])

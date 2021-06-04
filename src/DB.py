@@ -147,3 +147,15 @@ class DB:
         for result in results:
             winners.add(int(result[0]))
         return winners
+
+    def eligible_role_ids(self, guild_id: int) -> set[int]:
+        c = self.conn.cursor()
+        c.execute(
+            'SELECT DISTINCT role_id FROM "eligible_roles" WHERE guild_id = ?',
+            (guild_id,),
+        )
+        results = c.fetchall()
+        role_ids = set()
+        for result in results:
+            role_ids.add(int(result[0]))
+        return role_ids
