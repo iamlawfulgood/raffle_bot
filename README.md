@@ -26,14 +26,24 @@ Example usage:
 ## Data Storage and Usage
 
 This bot stores as little data as possible.
+The table schema should be clear about what is actually stored but to make it clear:
 
-There are only two attributes it (temporarily) stores per raffle: the server ID and the message ID (for the message the bot sent).  
-These are only held on to for the duration of a raffle and once ended they are deleted.  
+`raffles`:
+- `guild_id` -- The Discord server ID
+- `message_id` -- The actual message the bot sent to start the raffle
 
-ZERO data about the people who entered the raffle is stored in any way.  
-Raffle entrants are fetched only for the purpose of selecting a winner and then immediately discarded.  
+`past_wins`:
+- `id` -- Simple auto-incrementing ID
+- `guild_id` -- The Discord server ID
+- `message_id` -- The message the bot sent to start the raffle
+- `user_id` -- The winner of that particular raffle
 
-The bot does not store information about past raffles nor does it keep any logs.
+Other than the user ID there is no personal information otherwise stored or logged.
+
+For raffle fairness, past wins are stored and *never purged*. These are preserved even after leaving the server in order to prevent cheating by leaving and re-joining.
+If you would like your past wins expunged, please contact the server owner. 
+
+Still TODO is a consent flow that will only allow you to win raffles if you have agreed to these terms.
 
 ## Winner Selection
 
