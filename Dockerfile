@@ -15,4 +15,4 @@ RUN mkdir -p $(dirname $DB_PATH)
 RUN touch $DB_PATH
 RUN sqlite3 $DB_PATH < ./raffle.db.schema
 
-CMD [ "python", "./bot.py" ]
+CMD [ "python", "-u", "./bot.py" ]
