@@ -148,6 +148,21 @@ class DB:
             winners.add(int(result[0]))
         return winners
 
+    def win_counts(self, guild_id: int) -> dict[int, int]:
+        c = self.conn.cursor()
+        c.execute(
+            (
+                'SELECT user_id, COUNT(*) as num_wins FROM "past_wins"'
+                "WHERE guild_id = ? GROUP BY user_id"
+            ),
+            (guild_id,),
+        )
+        results = c.fetchall()
+        winners = {}
+        for result in results:
+            winners[int(result[0])] = int(result[1])
+        return winners
+
     def eligible_role_ids(self, guild_id: int) -> set[int]:
         c = self.conn.cursor()
         c.execute(
