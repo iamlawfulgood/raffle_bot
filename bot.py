@@ -36,13 +36,6 @@ class RaffleType(Enum):
     New = "new"
 
 
-class SelectionType(Enum):
-    # Default Raffle type. Lower odds of winning the more times you've won before
-    Weighted = "weighted"
-    # Completely random selection regardless of past wins
-    Unweighted = "unweighted"
-
-
 @bot.command()
 @commands.guild_only()
 @commands.has_role("raffler")
@@ -65,7 +58,6 @@ async def end(
     ctx: commands.Context,
     raffle_type: str = "normal",
     num_winners: int = 1,
-    selection_type: str = "weighted",
 ) -> None:
     """Closes an existing raffle and pick the winner(s)"""
     if not DB.get().has_ongoing_raffle(ctx.guild.id):
@@ -79,9 +71,7 @@ async def end(
     if raffle_message_id is None:
         raise Exception("Oops! That raffle does not exist anymore.")
 
-    await _end_raffle_impl(
-        ctx, raffle_message_id, raffle_type, num_winners, selection_type
-    )
+    await _end_raffle_impl(ctx, raffle_message_id, raffle_type, num_winners)
     DB.get().close_raffle(ctx.guild.id)
 
 
@@ -92,7 +82,6 @@ async def redo(
     ctx: commands.Context,
     raffle_type: str = "normal",
     num_winners: int = 1,
-    selection_type: str = "weighted",
 ) -> None:
     """
     Picks new winner(s) from a past raffle.
@@ -120,9 +109,7 @@ async def redo(
     # otherwise it'd be unfairly counted against them
     DB.get().clear_wins(ctx.guild.id, raffle_message.id)
 
-    await _end_raffle_impl(
-        ctx, raffle_message.id, raffle_type, num_winners, selection_type
-    )
+    await _end_raffle_impl(ctx, raffle_message.id, raffle_type, num_winners)
 
 
 async def _end_raffle_impl(
@@ -130,7 +117,6 @@ async def _end_raffle_impl(
     raffle_message_id: int,
     raffle_type: str,
     num_winners: int,
-    selection_type: str,
 ) -> None:
     raffle_message = await ctx.fetch_message(raffle_message_id)
     if raffle_message is None:
@@ -139,9 +125,6 @@ async def _end_raffle_impl(
     # We annotate the raffle_type param above as `str` for a more-clear error message
     # This way it says it doesn't recognize the raffle type rather than fail param type conversion
     raffle_type = RaffleType(raffle_type)
-
-    # We annotate the selection_type param above as `str` for the same reason
-    selection_type = SelectionType(selection_type)
 
     if raffle_type == RaffleType.Normal:
         recent_raffle_winner_ids = DB.get().recent_winner_ids(ctx.guild.id)
@@ -174,12 +157,13 @@ async def _end_raffle_impl(
         await ctx.send("No one eligible entered the raffle so there is no winner.")
         return
 
-    if selection_type == SelectionType.Weighted:
+    if raffle_type == RaffleType.Normal:
         winners = _choose_winners_weighted(list(entrants), num_winners)
     else:
         winners = _choose_winners_unweighted(list(entrants), num_winners)
 
-    DB.get().record_win(ctx.guild.id, raffle_message_id, *winners)
+    if raffle_type != RaffleType.Anyone:
+        DB.get().record_win(ctx.guild.id, raffle_message_id, *winners)
 
     if len(winners) == 1:
         await ctx.send("{} has won the raffle!".format(winners[0].mention))
