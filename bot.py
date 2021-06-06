@@ -158,7 +158,7 @@ async def _end_raffle_impl(
         return
 
     if raffle_type == RaffleType.Normal:
-        winners = _choose_winners_weighted(list(entrants), num_winners)
+        winners = _choose_winners_weighted(ctx.guild.id, list(entrants), num_winners)
     else:
         winners = _choose_winners_unweighted(list(entrants), num_winners)
 
